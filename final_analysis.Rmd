@@ -1,0 +1,596 @@
+---
+title: "Econ 484 Final"
+author: "CJ Robinson"
+date: "6/10/2020"
+header-includes:
+    - \usepackage{setspace}
+    - \doublespacing
+output: pdf_document
+---
+
+Note: this was created for a final project in my Econometrics and Data Science (ECON 484) at the University of Washington in Spring of 2020. 
+# Introduction
+
+Housing prices are used by various professionals and academics to research trends in the market and provide helpful information for buyers or sellers. The factors that may go into a person's decision to set sell their house at a certain price are varied and oftentimes unobservable. Even still, predicting housing prices using econometrics and machine learning can provide actionable insights or attempt to anticipate future trends. 
+
+In the following sections, I develop a model which predicts housing prices in each country. I also use an interpretable model to find that there are several significant drivers of housing prices in Peru and Ecuador, although they are distinct. 
+
+# Data Description – Task 1
+
+
+The data from this report comes from [Kaggle.com](Kaggle.com), a website with a data repository for machine learning problems. The data focuses on property listings in two countries, Peru and Ecuador, from March 2019 to March 2020. Several variables are in Spanish, but for the purposes of this paper will be translated into English. Variables include price, bedrooms, bathrooms, surface coverage, location, latitude, longitude, type of advertisement, several important dates related to the listing, and several textual variables like title and description. 
+
+I made several decisions regarding the data cleaning and feasibility of each variable. The number of NA’s were too high for several variables, including “l3”-“l6” which represent more granular locations, so they were not included in the analysis. “l1” was simply the country and also not included. Additionally, the variable “rooms” was not included as it was not helpful for many observations and was made up of mostly NA’s. “start_date” and “created_on” were highly colinear, so I choose to only include “start_date” in my analysis. To process these dates, I subtracted each from 01-01-2019 to get the number of day since the beginning of 2019. “end_date” had many observations without end dates that were coded as the year 9999, so this column was not included. Additionally, the variable “ad_type” had only one level, so it was not included. “id” was not pertinent to housing prices, so it was also not included. “surface_total” and “surface_covered” were similar variables, and there were too many NA’s in “surface_covered” so I only used “surface_toal.” I hot-coded two variables, “currency” and “price_period” since the values were either NA or another value. Currency ended up only being applicable with Peru data as it was the only one with variation in currency once other data cleaning had occurred, and neither dataset had any variation in price_period once I had done the data cleaning. Finally, I did not use textual variables like description and title. This left the variables “price”, “lat”, “lon”, “bedrooms”, “bathrooms”, “surface_total”, “property_type”, “operation_type”, and “currency” (only for Peru).^[All code for data cleaning is in appendix]
+
+Below are summary statistics for each country’s training set:
+
+\begin{table}[!htbp] \centering 
+  \caption{Peru Training Set} 
+  \label{} 
+\begin{tabular}{@{\extracolsep{5pt}}lccccccc} 
+\\[-1.8ex]\hline 
+\hline \\[-1.8ex] 
+Statistic & \multicolumn{1}{c}{N} & \multicolumn{1}{c}{Mean} & \multicolumn{1}{c}{St. Dev.} & \multicolumn{1}{c}{Min} & \multicolumn{1}{c}{Pctl(25)} & \multicolumn{1}{c}{Pctl(75)} & \multicolumn{1}{c}{Max} \\ 
+\hline \\[-1.8ex] 
+start\_date & 27,682 & 218.294 & 103.422 & 60 & 130 & 288 & 448 \\ 
+lat & 27,682 & $-$12.109 & 2.097 & $-$18.116 & $-$12.133 & $-$12.071 & $-$3.511 \\ 
+lon & 27,682 & $-$76.620 & 1.931 & $-$81.273 & $-$77.053 & $-$76.962 & $-$69.200 \\ 
+bedrooms & 27,682 & 3.448 & 2.212 & 0 & 3 & 4 & 45 \\ 
+bathrooms & 27,682 & 2.846 & 1.638 & 1 & 2 & 3 & 20 \\ 
+surface\_total & 27,682 & 294.338 & 4,416.244 & 10 & 90 & 223 & 320,000 \\ 
+price & 27,682 & 347,533.800 & 1,230,099.000 & 50 & 50,000 & 335,000 & 63,050,000 \\ 
+\hline \\[-1.8ex] 
+\end{tabular} 
+\end{table}
+
+\begin{table}[!htbp] \centering 
+  \caption{Ecuador Training Set} 
+  \label{} 
+\begin{tabular}{@{\extracolsep{5pt}}lccccccc} 
+\\[-1.8ex]\hline 
+\hline \\[-1.8ex] 
+Statistic & \multicolumn{1}{c}{N} & \multicolumn{1}{c}{Mean} & \multicolumn{1}{c}{St. Dev.} & \multicolumn{1}{c}{Min} & \multicolumn{1}{c}{Pctl(25)} & \multicolumn{1}{c}{Pctl(75)} & \multicolumn{1}{c}{Max} \\ 
+\hline \\[-1.8ex] 
+start\_date & 43,008 & 192.619 & 68.327 & 60 & 136 & 236 & 311 \\ 
+lat & 43,008 & $-$1.426 & 1.165 & $-$4.343 & $-$2.192 & $-$0.188 & 1.061 \\ 
+lon & 43,008 & $-$79.197 & 0.744 & $-$90.431 & $-$79.898 & $-$78.484 & $-$76.857 \\ 
+bedrooms & 43,008 & 3.043 & 1.527 & 1 & 2 & 3 & 30 \\ 
+bathrooms & 43,008 & 2.810 & 1.440 & 1 & 2 & 3 & 20 \\ 
+surface\_total & 43,008 & 229.135 & 1,040.697 & 10 & 91 & 209 & 110,000 \\ 
+price & 43,008 & 112,112.800 & 203,533.300 & 50 & 700 & 147,170.8 & 14,000,000 \\ 
+\hline \\[-1.8ex] 
+\end{tabular} 
+\end{table}
+
+# Methodology - Task 1, 3 & some of Task 4 (Model Selection/Feature Selection)
+
+## Building a Predictive Model - Boosting
+
+There are several methods available to build a predictive model, but I ultimately chose to use Boosted Regression. Boosting provides many of the advantages of tree-based methods while slowing down the learning process. Its basis is similar to that of random forests and bagging in that it divides that data along different independent variables, forming a decision tree. Each split is considered to be a node, and at the end of each of these tree branches are terminal nodes. Using the training data, data is split into each of these terminal nodes and then averaged to create predictions for new data. Single trees without cross validation or pruning can lead to overfitting of the training data depending on the tuning parameters. 
+
+Boosting, which is a method that can be applied to many statistical methods, expands on this tree-based decision making. With this method, the training data is used to build multiple, sequential trees. After each tree is formed, the next tree essentially learns from the previous iteration by fitting to the residuals of the previous tree. The algorithm, taken from ISLR, is below:
+
+1. Set $\hat{f}(x)$= 0 and $r_i$ = $y_i$ for all $i$ in the training set.
+
+2. For $b = 1, 2,..,B$, repeat: 
+
+  (a) Fit a tree $\hat{f}^ b$ with $d$ splits ($d + 1$ terminal nodes) to the training data ($X$, $r$). 
+
+  (b) Update $\hat{f}$ by adding in a shrunken version of the new tree: $\hat{f}(x) ← \hat{f}(x) + \lambda\hat{f}^b (x)$. 
+
+  (c) Update the residuals, $r_i \leftarrow r_i – {\lambda}\hat{f}^b(x_i)$. 
+
+3. Output the boosted model, $\hat{f}(x) =  \sum_{b=1}^B\lambda\hat{f}^b(x)$
+
+I chose this model because it performed best in preliminary versions of all models including random forests, bagging, and a generalized additive model. I ran simple version of each of these models and used them to predict out of sample, choosing the one with the smallest Mean Squared Error. Given more time and computing power, I would have liked to perform cross validation on each of these, but for the purposes of this project I continued with boosting. When boosting, I used interaction terms for all of the independent variables as well. 
+
+### Tuning Parameters
+
+There are four tuning parameters available in the “gbm” method of training. First is interaction depth. This describes the maximum depth of each tree or the highest variable interaction for the function. The second is the number of trees, which can lead to overfitting but rarely does. The third is shrinkage, which is the $\lambda$ or learning rate in the above equation. Fourth is “n.minobsinnode”, which is a stopping point for the minimum amount of observations in each terminal node. 
+
+![]( /Users/cj/Dropbox/Academics and Research/UW Undergraduate/Year Three/ECON 484/final/Rplot.pdf){width=50%}
+![](/Users/cj/Dropbox/Academics and Research/UW Undergraduate/Year Three/ECON 484/final/Rplot01.pdf){width=50%}
+
+Once again, due to computational power and time, I could only perform cross validation on two of these four parameters. It is fairly standard to have a shrinkage rate of .01 and minimum observations per node be set to 10, so each of these were held constant. I varied the interaction depths of 3, 5, and 8, and varied the number of trees of 100, 250, and 500. I did this with 5 folds. 
+
+The optimum model for Peru had 500 trees and 8 interaction depth. For Ecuador, the optimum model also had 500 trees and 8 interaction depth. 
+
+## Building an Interpretive Model – OLS
+
+Ordinary Least Squares (OLS) regression is a standard procedure for fitting linear relationships by finding the least squared residual of a model. It outputs interpretable coefficients to understand the variation in the dependent variable and allows for more interpretability. Unfortunately, due to its oftentimes binding and cumbersome assumptions, OLS has a high degree of bias because it places restrictive limits on complex problems. This will be seen as it has a higher Mean Squared Error compared to boosting below. 
+
+## The Interpretability/Predictability Trade-Off
+
+While models like neural nets and random forests are often very accurate and provide powerful predictive results, they also function as a black box which is uninterpretable. If a business leader was able to tell that a company would lose much of its profit next year but could not describe why, the model they used would not be very helpful in creating actionable change. On the other hand, with very interpretable models, they often are much less accurate since they rely on simpler assumptions. In this case, boosting performs much better than OLS but only gives “relative importance” measures, whereas OLS gives unit by unit interpretations of each of the independent variables.  
+
+# Analysis – Task 2, 3, 4
+
+## Drivers of Each Market – Boosting
+
+The boosted regression model was fairly accurate. Both models performed better than their OLS counterparts^[See Appendicies]. The RMSE for Peru's out of sample predictions was 760846.7, which is high, but considering the range of values in the price is understandable. It's R2 score was .61. For Ecuador, the model performed much better out of sample. Its RMSE was 110369.7 with an R2 score of .61. 
+
+Boosting, as stated above, only gives some insight into the drivers in each market. It does so by showing the “relative influence” of each independent variable. This measure is created by the “gbm” function. Although helpful at understandign what the model thinks is important, there is little ability to take action on these interpretations since there is no directionality or actual translation to real changes. 
+
+![](/Users/cj/Dropbox/Academics and Research/UW Undergraduate/Year Three/ECON 484/final/pr_inf.png){width=50%}
+![](/Users/cj/Dropbox/Academics and Research/UW Undergraduate/Year Three/ECON 484/final/ec_inf.png){width=50%}
+
+Here, we see that for Peru there are overall more variables of relative influence spread evenly. The first three interactions that are important are surface area total/the currency it was listed in, the longitutde of the property, and the start date/the longitude. This is a good example of why interpretability matters. Although we know that the model uses these interactions of variables in its predictive power, it is difficult to say why the interaction between the day the property was first listed and where the property lies has a large influence on the model. It could be because certain housing markets in a certain time expirienced some change in the price, but it is difficult to know.
+
+For Ecuador, the interaction between the total surface area and the property being sold is by far the most influential. The next is the interaction between total surfact area and the number of bathrooms. The first driver may be explained because there is such a segmented market that surface area may have a larger effect for sales of places over rentals, or the other way around. Similarly for the second driver, the number of bathrooms may have a different effect on price depending on how large the property is. 
+
+## Drivers of Each Market – OLS
+
+In a more interpretable but less accurate viewpoint, OLS demonstrates different drivers. One important driver for each market represented by different variables is the location of the property. Although not included in the tables below^[Full regression results are in Appendix E], most of the "l2" variables which usually represent the province of the country, are significant in either direction. For Peru, both latitude and longitute are significantly negative, meaning the properties that are further south and further east are less expensive. For Ecuador, latitude is negative while longitude is positive meaning properties that are further south and futher west are less expensive. 
+
+In Peru, the number of bedrooms is not a statistically significant factor in price. This will be explained later, as I posit that most of this effect is represented in "property type." In Ecuador, the effect is small but negative with a .01% percent decrease. The number of bathrooms is significant in each country, with a 32% increase in price with 1 more bathroom in Peru and a 24% increase in price with one more bathroom in Ecuador. This effect is interesting, but is understandable because this is controlling for all other factors. Bathrooms do not take up much space and can be a valuable addition to a home, so the addition of one may make property price go up signficantly. The surface_total variable, which is the total area in square meters, has a .1% increase in price with every 1,000 square meter increase holding other factors constant. 
+
+The type of property does affect the price in differing ways. For example, in Peru, lots ("lote") are 30 percent higher in price than the base level, which is a house ("Casa"). In Ecuador, lots are 78 percent higher on average. The operation type variable, which represents sales of properties ("Venta") and rentals ("Alquiler"), has a relatively large impact compared to property type. On average, sales are 500% more than rentals. Though extreme, this amount makes sense as these property listings for rentals are monthly payments, which are many magnitudes lower than the sale of properties. Since these are such different markets, in the future I would want to run an analysis of each seperately. 
+
+\begin{table}[!htbp] \centering 
+  \caption{Peru OLS Results} 
+  \label{} 
+\begin{tabular}{@{\extracolsep{5pt}}lc} 
+\\[-1.8ex]\hline 
+\hline \\[-1.8ex] 
+ & \multicolumn{1}{c}{\textit{Dependent variable:}} \\ 
+\cline{2-2} 
+\\[-1.8ex] & log(price) \\ 
+\hline \\[-1.8ex] 
+ start\_date & $-$0.001$^{***}$ \\ 
+  & (0.00004) \\ 
+  & \\ 
+ lat & $-$0.361$^{***}$ \\ 
+  & (0.039) \\ 
+  & \\ 
+ lon & $-$0.122$^{**}$ \\ 
+  & (0.050) \\ 
+  & \\ 
+ bedrooms & $-$0.012$^{***}$ \\ 
+  & (0.003) \\ 
+  & \\ 
+ bathrooms & 0.262$^{***}$ \\ 
+  & (0.004) \\ 
+  & \\ 
+ surface\_total & 0.00001$^{***}$ \\ 
+  & (0.00000) \\ 
+  & \\ 
+ currencyPEN & 0.985$^{***}$ \\ 
+  & (0.012) \\ 
+  & \\ 
+ property\_typeLote & 0.302$^{***}$ \\ 
+  & (0.085) \\ 
+  & \\ 
+ property\_typeOtro & $-$0.280$^{***}$ \\ 
+  & (0.015) \\ 
+  & \\ 
+ property\_typeOficina & $-$0.063$^{*}$ \\ 
+  & (0.037) \\ 
+  & \\ 
+ property\_typeDepartamento & $-$0.395$^{***}$ \\ 
+  & (0.011) \\ 
+  & \\ 
+ property\_typeLocal comercial & 0.210$^{***}$ \\ 
+  & (0.033) \\ 
+  & \\ 
+ property\_typeDepósito & 0.797$^{***}$ \\ 
+  & (0.118) \\ 
+  & \\ 
+ operation\_typeAlquiler & $-$5.181$^{***}$ \\ 
+  & (0.011) \\ 
+  & \\ 
+ Constant & $-$1.611 \\ 
+  & (4.162) \\ 
+  & \\ 
+\hline \\[-1.8ex] 
+Observations & 27,682 \\ 
+R$^{2}$ & 0.911 \\ 
+Adjusted R$^{2}$ & 0.911 \\ 
+Residual Std. Error & 0.684 (df = 27644) \\ 
+F Statistic & 7,623.318$^{***}$ (df = 37; 27644) \\ 
+\hline 
+\hline \\[-1.8ex] 
+\textit{Note: "l2" factors not included}  & \multicolumn{1}{r}{$^{*}$p$<$0.1; $^{**}$p$<$0.05; $^{***}$p$<$0.01} \\ 
+\end{tabular} 
+\end{table} 
+
+\begin{table}[!htbp] \centering 
+  \caption{Ecuador OLS Results} 
+  \label{} 
+\begin{tabular}{@{\extracolsep{5pt}}lc} 
+\\[-1.8ex]\hline 
+\hline \\[-1.8ex] 
+ & \multicolumn{1}{c}{\textit{Dependent variable:}} \\ 
+\cline{2-2} 
+\\[-1.8ex] & log(price) \\ 
+\hline \\[-1.8ex] 
+ start\_date & $-$0.00000 \\ 
+  & (0.00004) \\ 
+  & \\ 
+ lat & $-$0.412$^{***}$ \\ 
+  & (0.039) \\ 
+  & \\ 
+ lon & 0.345$^{***}$ \\ 
+  & (0.018) \\ 
+  & \\ 
+ bedrooms & 0.002 \\ 
+  & (0.003) \\ 
+  & \\ 
+ bathrooms & 0.249$^{***}$ \\ 
+  & (0.003) \\ 
+  & \\ 
+ surface\_total & 0.00004$^{***}$ \\ 
+  & (0.00000) \\ 
+  & \\ 
+ property\_typeDepartamento & $-$0.076 \\ 
+  & (0.105) \\ 
+  & \\ 
+ property\_typeCasa & $-$0.147 \\ 
+  & (0.105) \\ 
+  & \\ 
+ property\_typeLote & 0.738$^{***}$ \\ 
+  & (0.242) \\ 
+  & \\ 
+ property\_typeOtro & $-$0.118 \\ 
+  & (0.105) \\ 
+  & \\ 
+ property\_typeLocal comercial & 0.337$^{**}$ \\ 
+  & (0.144) \\ 
+  & \\ 
+ property\_typeDepósito & 1.358$^{***}$ \\ 
+  & (0.348) \\ 
+  & \\ 
+ property\_typeCasa de campo & 0.733 \\ 
+  & (0.585) \\ 
+  & \\ 
+ operation\_typeVenta & 5.248$^{***}$ \\ 
+  & (0.006) \\ 
+  & \\ 
+ Constant & 32.999$^{***}$ \\ 
+  & (1.433) \\ 
+  & \\ 
+\hline \\[-1.8ex] 
+Observations & 43,008 \\ 
+R$^{2}$ & 0.954 \\ 
+Adjusted R$^{2}$ & 0.954 \\ 
+Residual Std. Error & 0.575 (df = 42971) \\ 
+F Statistic & 24,657.920$^{***}$ (df = 36; 42971) \\ 
+\hline 
+\hline \\[-1.8ex] 
+\textit{Note:"l2" factors not included}  & \multicolumn{1}{r}{$^{*}$p$<$0.1; $^{**}$p$<$0.05; $^{***}$p$<$0.01} \\ 
+\end{tabular} 
+\end{table} 
+
+## Comparing Predictions of Properties
+
+Because the boosted regression model has some worth in predicting housing prices in each of these countries, I compare similar properties and predict their prices in both Peru and Ecuador to find begin to analyze differences in the markets.^[Prediction code can be found in Appendix D] 
+
+First, the mean predicted price in each market varied. For Peru, the average predicted cost was \$341,519 while in Ecuador it was \$113,281. This was the main difference in many of the predicted values of similar properties, although the difference between predicted prices of similar properties was smaller. For instance, looking at two similar pieces of property^[Each had 2 bedrooms, 1 bathroom, were in a similar geographic area, had around 85 square meter surface area, was a purchase, was listed less more than 200 days into 2019, and was the "department" property type.] in both Ecuador and Peru yielded a difference of around \$30,000, with Ecuador's prediction of this property to be around \$84,000 and Peru's being \$111,000.^[I hoped to simulate my own data and have more control, but unfortunately whenever I created a new dataframe with my own data and used it to predict with the boosted model, R would encounter a terminal error. I attempted to find thses two similar properties by hand instead.]
+
+# Discussion – Task 5
+
+## Similarities in Markets
+
+Both models can help describe each market. The similarities between Ecuador and Peru that were found in the boosted regression's description of relative influence include location-related variables, such as longitude and latitude, and their interactions with variables like number of bathrooms and surface area. Surface area was also an important factor shared between each of these countries in the boosted regression. Finally, whether or not a property was to be purchased or rented was a signficant factor in determing price. 
+
+In the OLS regression, there were several similarities. The magnitude of whether a property was a rental as opposed to a sale was similar and in the same direction for each country. Surface area also had a similar small but positive effect for Peru and Ecuador. Overall, much like the boosted regression, location seemed to be a influential determining factor on price. 
+
+## Differences in Markets
+
+In the boosted regression, there were several interactions and variables that had different relative importance. The most obvious is the inclusion of the interaction between currency and surface area in Peru. Currency was not included in the Ecuador dataset due to data limitations, but may have been an important factor in determining price. Additionally, in Peru, one of the largest influential interactions was longitude and the department property type, while no such relationship existed in Ecuador. 
+
+One main difference in the OLS regression results was that the date a property was posted had a statistically significant result for Peru, but not for Ecuador. There may have been macroeconomic factors affecting Peru that may have made the start date an important factor in determining price. Another suprising difference was the direction of the bedroom variable. For Peru, an increase in the number of bedrooms decreased the price while Ecuador had no effect, but even still the effect for both was small. Additionally, the direction of the longitude varibale was flipped for Peru and Ecuador. The higher longitude in Peru, the lower the price, while the higher the longitude in Ecuador was found to have a positive effect on price. This may take into account regional economic differences. 
+
+# Conclusion
+
+Housing prices have an effect on many populations and are of interest to many stakeholders. In the case of Peru and Ecuador, I found that Ecuador's housing market overall is at a lower value and holds differing drivers than Peru. Mainly, the date that a property was posted was an influence on price in Peru but not Ecuador, and location matters in differing ways. Even still, location was a signficant factor in both markets and are an effective way of predicting price.
+
+\newpage
+
+# Appendix A - Data Cleaning
+```{r setup, include = FALSE}
+# Set-Up -----------
+require(data.table)
+require(tidyverse)
+require(lubridate)
+require(randomForest)
+require(gbm)
+require(caret)
+require(tree)
+require(hdm)
+require(stargazer)
+
+setwd("/Users/cj/Dropbox/Academics and Research/UW Undergraduate/Year Three/ECON 484/final")
+```
+
+```{r data_cleaning}
+set.seed(123)
+
+#reads in data as specific data formats
+peru_original <- read_csv("pe_properties.csv", 
+                          col_types = cols(
+                            ad_type = col_factor(),
+                            currency = col_factor(),
+                            l2 = col_factor(),
+                            price_period = col_factor(),
+                            property_type = col_factor(),
+                            operation_type = col_factor()
+                          ))
+
+ecu_original <- read_csv("ec_properties.csv",
+                         col_types = cols(
+                           ad_type = col_factor(),
+                           currency = col_factor(),
+                           l2 = col_factor(),
+                           price_period = col_factor(),
+                           property_type = col_factor(),
+                           operation_type = col_factor()
+                         ))
+
+# Data Cleaning ----------
+peru <- peru_original %>% 
+  #turns start_date into # of days since 01-01-2019
+  mutate(start_date = as.numeric(start_date - ymd(20190101))) %>% 
+  #filters out NA
+  filter(!is.na(price),
+         !is.na(lat),
+         !is.na(lon),
+         !is.na(l2),
+         !is.na(bedrooms),
+         !is.na(bathrooms),
+         !is.na(surface_total),
+         !is.na(currency),
+         !is.na(property_type),
+         !is.na(operation_type),
+         price > 0) %>% 
+  select_if(~ !any(is.na(.))) %>% #removes any columns with NAs
+  select(-id, 
+         -l1,
+         -title,
+         -description,
+         -ad_type,
+         -end_date,
+         -created_on) #deselects certain columns
+
+ecu <- ecu_original %>% 
+  mutate(start_date = as.numeric(start_date - ymd(20190101))) %>% 
+  filter(!is.na(price),
+         !is.na(lat),
+         !is.na(lon),
+         !is.na(l2),
+         !is.na(bedrooms),
+         !is.na(bathrooms),
+         !is.na(surface_total),
+         !is.na(property_type),
+         !is.na(operation_type),
+         price > 0) %>% 
+  select_if(~ !any(is.na(.))) %>% 
+  select(-l1,
+         -title,
+         -description,
+         -ad_type, 
+         -id,
+         -created_on,
+         -end_date,
+         -currency)
+
+# split in training and testing 
+
+trainIndex <- createDataPartition(peru$price, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+
+pr_train_set <- peru[c(trainIndex),]
+pr_test_set <- peru[-trainIndex,]
+
+trainIndex <- createDataPartition(ecu$price, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+
+ec_train_set <- ecu[c(trainIndex),]
+ec_test_set <- ecu[-trainIndex,]
+```
+
+\newpage
+
+# Appendix B- Exploration
+
+```{r explor}
+set.seed(123)
+
+cor(sapply(pr_train_set, as.numeric)) #creates correlation matrix
+cor(sapply(ec_train_set, as.numeric)) #creates correlation matrix
+
+#descriptive statistics
+summary(pr_train_set)
+summary(ec_train_set)
+
+# creates tables for report of summary stats 
+#stargazer(as.data.frame(pr_train_set)))
+#stargazer(as.data.frame(ec_train_set)))
+```
+
+\newpage
+
+# Appendix C - Building a Predictive Model (Boosting)
+
+```{r load, include= FALSE}
+set.seed(123)
+pr_boost <- readRDS("pr_model.rds")
+ec_boost <- readRDS("ec_model.rds")
+```
+
+```{r boost, eval = FALSE}
+set.seed(123)
+
+# cross-validating - TAKES SEVERAL HOURS TO RUN
+#--------------------------------------------------
+# trainctrl <- trainControl(method = "repeatedcv",
+#                           number = 5,
+#                           ## repeated ten times
+#                           repeats = 1,
+#                           verboseIter = TRUE) # selects amount of folds
+# 
+# gbmGrid <-  expand.grid(interaction.depth =c(3,5,8), n.trees = c(100,250,500),
+#                         shrinkage =.01, n.minobsinnode = 10) # selects parameters to tune
+# 
+# pr_boost <- train(price~.*.,data=pr_train_set, method = "gbm", distribution= "gaussian", 
+#                    trControl = trainctrl, tuneGrid = gbmGrid)
+# 
+# ec_boost <- train(price~.*.,data=ec_train_set, method = "gbm", distribution= "gaussian", 
+#                     trControl = trainctrl, tuneGrid = gbmGrid)
+
+
+#Runs specific model choice - TAKES AROUND 20 MIN TO RUN
+#---------------------------------------------------
+#only trains one model
+fitControl <- trainControl(method = "none")
+
+#trains model using parameters found through cross-validation
+pr_boost <- train(price~.*.,
+                  data=pr_train_set,
+                  method = "gbm",
+                  distribution= "gaussian",
+                  trControl = fitControl,
+                  verbose = FALSE,
+                  tuneGrid = data.frame(
+                    n.trees = 500,
+                    interaction.depth = 8,
+                    shrinkage = .01,
+                    n.minobsinnode = 10))
+
+ec_boost <- train(price~.*.,
+                  data=ec_train_set,
+                  method = "gbm",
+                  distribution= "gaussian",
+                  trControl = fitControl,
+                  verbose = FALSE,
+                  tuneGrid = data.frame(n.trees = 500,
+                  shrinkage = .01,
+                  interaction.depth = 8,
+                  n.minobsinnode = 10))
+
+# saves model
+# saveRDS(pr_boost, "./pr_model.rds")
+# saveRDS(ec_boost, "./ec_model.rds")
+
+# Creates relative influence graphs
+#  ----------------------------
+# pr_influence <- summary(pr_boost)
+# ec_influence <- summary(ec_boost)
+
+# pr_influence %>%
+#   filter(rel.inf > 2) %>% # only get higher influence
+#   arrange(rel.inf) %>% # sort by influence
+# ggplot(aes(x = rel.inf, y = reorder(var, -rel.inf))) +
+#   geom_bar(stat = "identity") +
+#   theme_minimal() +
+#   scale_fill_viridis_c() +
+#   xlab("Relative Influence") +
+#   ylab("Variable") +
+#   ggtitle("Relative Influence of Peru GBM") +
+#   ggsave("pr_inf.png")
+# 
+# ec_influence %>%
+#   filter(rel.inf > 2) %>%
+#   arrange(rel.inf) %>%
+# ggplot(aes(x = rel.inf, y = reorder(var, -rel.inf))) +
+#   geom_bar(stat = "identity") +
+#   theme_minimal() +
+#   xlab("Relative Influence") +
+#   ylab("Variable") +
+#   ggtitle("Relative Influence of Ecuador GBM") +
+#   ggsave("ec_inf.png")
+
+# loads previously saved models
+# pr_boost <- readRDS("pr_model.rds")
+# ec_boost <- readRDS("ec_model.rds")
+
+# plots training if cv is ran
+#plot(pr_boost)
+#plot(ec_boost)
+```
+```{r test}
+set.seed(123)
+# out of sample testing for boosted regression
+pr_boost_pred_is <- predict(pr_boost, pr_train_set) #in sampele
+pr_boost_pred_oos <- predict(pr_boost, pr_test_set) # out of sample
+RMSE(pr_boost_pred_oos, pr_test_set$price)
+R2(pr_boost_pred_oos, pr_test_set$price)
+
+ec_boost_pred_is <- predict(ec_boost, ec_train_set)
+ec_boost_pred_oos <- predict(ec_boost, ec_test_set)
+RMSE(ec_boost_pred_oos, ec_test_set$price)
+R2(ec_boost_pred_oos, ec_test_set$price)
+```
+
+\newpage
+
+# Appendix D - Predictions
+```{r predictions}
+set.seed(123)
+
+#bind predictions of training price back to training set
+pr_predictions <- cbind(pr_train_set, pr_boost_pred_is)
+ec_predictions <- cbind(ec_train_set, ec_boost_pred_is)
+
+#find average of the predictions (out of sample)
+mean(pr_boost_pred_oos)
+mean(ec_boost_pred_oos)
+
+#find similar properties and their predicted price
+ec_predictions %>% 
+  filter(bedrooms == 2,
+         bathrooms == 1,
+         lat < -2.9 & lat > -5,
+         lon > -82 & lon < -76,
+         surface_total > 80 & surface_total < 90,
+         operation_type == "Venta",
+         property_type == "Departamento",
+         start_date > 200) %>% 
+  select(ec_boost_pred_is)
+
+pr_predictions %>% 
+  filter(bedrooms == 2,
+         bathrooms == 1,
+         lat < -2.9 & lat > -5,
+         lon > -82 & lon < -76,
+         surface_total > 80 & surface_total < 90,
+         operation_type == "Venta",
+         property_type == "Departamento",
+         start_date >200) %>% 
+  select(pr_boost_pred_is)
+
+```
+
+\newpage
+
+# Appendix E - Building an Interpratable Model (OLS)
+
+```{r ols}
+set.seed(123)
+
+# runs simple mutlivariate regression
+pr_ols <- lm(log(price) ~., pr_train_set)
+ec_ols <- lm(log(price) ~., ec_train_set)
+
+#summarizes regression
+summary(pr_ols)
+summary(ec_ols)
+
+# creates coefficient table
+#-----------------------
+# stargazer(pr_ols)
+# stargazer(ec_ols)
+
+#predict out of sample
+pr_ols_pred_oos <- predict(pr_ols, pr_test_set)
+pr_ols_pred_oos <- exp(pr_ols_pred_oos) #convert back to actual units, was in log
+RMSE(pr_ols_pred_oos, pr_test_set$price) #calc RMSE
+R2(pr_ols_pred_oos, pr_test_set$price) # calc R2
+
+ec_ols_pred_oos <- predict(ec_ols, ec_test_set)
+ec_ols_pred_oos <- exp(ec_ols_pred_oos)
+RMSE(ec_ols_pred_oos, ec_test_set$price)
+R2(ec_ols_pred_oos, ec_test_set$price)
+```
+
